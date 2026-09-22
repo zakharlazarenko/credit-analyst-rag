@@ -1,0 +1,7 @@
+doc_id,company,year,type,url,sha256,pages
+lukoil_ar_2024,LUKOIL,2024,annual_report,https://lukoil.ru/InvestorAndShareholderCenter/ShareholdersMeeting,f38fbe3f3fce814d059799e436c84c5e9d67f0bd2f90490aa1db5f6fef5c2243,130
+lukoil_ar_2025,LUKOIL,2025,annual_report,https://lukoil.ru/InvestorAndShareholderCenter/ShareholdersMeeting,41740a69ad6e7e2522c3f23cd2a5f327421e27db78b68489bafc4bf12fcd9a92,131
+rosneft_ar_2024,ROSNEFT,2024,annual_report,https://www.rosneft.ru/Investors/statements_and_presentations/annual_reports/,5b96144dee6d36d9ba9e1f59f7131ea443994488487a2feea650f3037fdb0dad,62
+rosneft_ar_2025,ROSNEFT,2025,annual_report,https://www.rosneft.ru/Investors/statements_and_presentations/annual_reports/,7803034c9640e4b3b938abb64c97c2b835f1eb218f4d1220ba7e60181aa3c3e8,68
+tatneft_ar_2024,TATNEFT,2024,annual_report,https://www.tatneft.ru/aktsioneram-i-investoram/raskritie-informatsii/godovie-otcheti,c7a46f094c8efc31d4ba7aaf991431f3764bff4175bcd73a5b43b900e1c392f9,200
+tatneft_ar_2025,TATNEFT,2025,annual_report,https://www.tatneft.ru/aktsioneram-i-investoram/raskritie-informatsii/godovie-otcheti,43877569f050b331d3b02a0a1658c0294c76d8b7000bea9958558fb07a647e58,258
