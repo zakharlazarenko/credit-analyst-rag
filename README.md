@@ -5,11 +5,12 @@
 - RAG для качественных вопросов по содержанию годовых отчетов;
 - структурированное хранилище финансовых фактов для точных числовых значений;
 - детерминированные расчеты финансовых показателей в Python;
-- LLM для понимания естественного языка, классификации запроса и формирования ответа.
+- LLM для понимания естественного языка, классификации запроса и формирования ответа;
+- Streamlit-интерфейс для работы с системой через браузер.
 
-Проект сделан как практическая RAG/LLM-система с акцентом на надежность,
-provenance, воспроизводимость расчетов, оценку retrieval-качества и четкое
-разделение ответственности между LLM и обычным кодом.
+Проект сделан как практическая RAG/LLM-система с акцентом на надежность, provenance,
+воспроизводимость расчетов, оценку retrieval-качества и четкое разделение
+ответственности между LLM и обычным кодом.
 
 ---
 
@@ -74,7 +75,7 @@ provenance, воспроизводимость расчетов, оценку re
                         +------------------+
                                   |
                                   v
-                            ФИНАЛЬНЫЙ ОТВЕТ
+                              Streamlit
 ```
 
 Главный архитектурный принцип:
@@ -86,14 +87,12 @@ provenance, воспроизводимость расчетов, оценку re
 LLM                 -> понимание языка и генерация текста
 ```
 
-LLM не используется как источник истины для точных финансовых значений и
-не выполняет детерминированную финансовую арифметику.
+LLM не используется как источник истины для точных финансовых значений и не
+выполняет детерминированную финансовую арифметику.
 
 ---
 
 ## 3. Поддерживаемые типы запросов
-
-Ассистент различает шесть intents:
 
 | Intent | Пример | Execution path |
 |---|---|---|
@@ -104,11 +103,8 @@ LLM не используется как источник истины для т
 | `growth` | Как изменилась выручка с 2024 по 2025? | Structured facts + Python |
 | `unknown` | Стоит ли выдавать ЛУКОЙЛу кредит? | Unsupported / guardrail |
 
-Отсутствующие параметры не должны молча придумыватьcя.
-
-Например, если в growth-запросе не указаны периоды, отдельный resolver может
-восстановить их только тогда, когда это безопасно с точки зрения доступных
-данных и comparability.
+Отсутствующие параметры не должны молча придумываться. Resolver восстанавливает
+их только там, где это безопасно с точки зрения доступных данных и comparability.
 
 ---
 
@@ -157,28 +153,12 @@ FinancialFact(
 )
 ```
 
-Каждый факт сохраняет provenance:
-
-```text
-company_id
-period
-standard
-metric
-value
-unit
-doc_id
-page
-extraction_method
-confidence
-```
-
-Это позволяет всегда связать ответ с конкретным документом и страницей.
+Каждый факт сохраняет provenance: компанию, период, стандарт, метрику, значение,
+единицу измерения, документ, страницу, метод извлечения и confidence.
 
 ---
 
 ## 5. Text RAG pipeline
-
-Качественная ветка работает по схеме:
 
 ```text
 PDF
@@ -214,43 +194,17 @@ Grounded generation
 Citation formatting
 ```
 
-### 5.1. Парсинг
+Основной PDF-парсер — `pdfplumber`. Подробности выбора и другие архитектурные
+решения находятся в `docs/DECISIONS.md`.
 
-Основной PDF-парсер:
-
-```text
-pdfplumber
-```
-
-Он был выбран после сравнения с:
-
-- `pypdf`;
-- `PyMuPDF`.
-
-Подробности выбора находятся в:
-
-```text
-docs/DECISIONS.md
-```
-
-### 5.2. Chunking
-
-Текущая конфигурация:
+Chunking:
 
 ```text
 chunk size: 1200 символов
 overlap: 200 символов
 ```
 
-Chunks сохраняют metadata:
-
-```text
-company
-year
-doc_id
-page
-chunk_id
-```
+Chunks сохраняют metadata: company, year, doc_id, page, chunk_id.
 
 ---
 
@@ -262,29 +216,10 @@ Embedding model:
 intfloat/multilingual-e5-small
 ```
 
-Размер embedding:
-
-```text
-384
-```
-
-Для E5 используются обязательные префиксы:
-
-```text
-query:
-passage:
-```
-
+Размер embedding — 384. Для E5 используются префиксы `query:` и `passage:`.
 Перед similarity search векторы нормализуются.
 
-Также используется metadata prefilter:
-
-```text
-company
-year
-```
-
-То есть поиск идет только внутри нужной компании и нужного периода.
+Перед retrieval применяется metadata prefilter по `company` и `year`.
 
 ---
 
@@ -296,9 +231,6 @@ year
 - BM25;
 - Hybrid Dense + BM25 через Reciprocal Rank Fusion;
 - Dense retrieval + multilingual reranker.
-
-BM25 и Hybrid сохранены как воспроизводимые эксперименты, но не используются
-в основном production-like pipeline.
 
 Финальная retrieval-архитектура:
 
@@ -328,39 +260,11 @@ Alibaba-NLP/gte-multilingual-reranker-base
 | Dense | 0.717 | 0.958 | 1.000 | 0.900 |
 | Dense Top-5 + GTE reranker | 0.792 | 0.958 | 1.000 | 0.950 |
 
-Reranker в первую очередь улучшил позицию релевантного документа на ранних
-позициях, сохранив Recall@5.
+Reranker улучшил ранжирование релевантных результатов, сохранив Recall@5.
 
 ---
 
-## 8. Context construction
-
-Retrieved chunks не передаются модели напрямую.
-
-Context builder:
-
-- объединяет chunks с одной страницы;
-- удаляет точные повторы предложений из overlap;
-- сохраняет source metadata;
-- строит явные source-блоки.
-
-Пример:
-
-```text
-[SOURCE 1]
-Company: LUKOIL
-Year: 2025
-Page: 25
-
-...
-```
-
-Generation model получает инструкцию отвечать только на основе переданного
-контекста.
-
----
-
-## 9. Локальная LLM
+## 8. Локальная LLM
 
 Для локального inference используется Ollama.
 
@@ -381,16 +285,16 @@ LLM не используется для:
 
 - поиска точного финансового значения;
 - unit normalization;
-- расчета Net Debt / EBITDA;
-- расчета Free Cash Flow;
+- Net Debt / EBITDA;
+- Free Cash Flow;
 - growth calculation;
 - deterministic comparison arithmetic.
 
 ---
 
-## 10. Structured Financial Layer
+## 9. Structured Financial Layer
 
-В проекте поддерживаются canonical metrics:
+Поддерживаются canonical metrics:
 
 ```text
 revenue
@@ -417,23 +321,13 @@ net_debt_to_ebitda
 free_cash_flow_calculated
 ```
 
-Пример:
-
-```text
-Net Debt / EBITDA
-=
-normalized Net Debt
-/
-normalized EBITDA
-```
-
 Для финансовых значений используется `Decimal`.
 
 ---
 
-## 11. Нормализация единиц
+## 10. Нормализация и comparability
 
-В отчетности встречаются разные денежные масштабы:
+Поддерживаются денежные масштабы:
 
 ```text
 RUB
@@ -444,51 +338,8 @@ RUB_BILLION
 
 Перед расчетами и сравнением значения приводятся к общей единице.
 
-Например:
-
-```text
-600 RUB_BILLION
-=
-600 000 RUB_MILLION
-```
-
-Это позволяет безопасно использовать данные из отчетов с разными форматами
-представления чисел.
-
----
-
-## 12. Comparability guardrails
-
-Проект отдельно проверяет, можно ли сравнивать финансовые показатели.
-
-### 12.1. Semantic comparability
-
-Используется при сравнении разных компаний.
-
-Одинаковое название метрики не гарантирует одинаковый economic scope.
-
-Поэтому comparison tool возвращает:
-
-```text
-числовое сравнение
-+
-comparability status
-+
-комментарий
-```
-
-Например:
-
-```text
-COMPARABLE
-CAUTION
-```
-
-### 12.2. Temporal comparability
-
-Используется при сравнении разных периодов одной компании.
-
-Поддерживаются статусы:
+Проект отдельно проверяет semantic и temporal comparability. Для временной
+сопоставимости используются статусы:
 
 ```text
 COMPARABLE
@@ -496,19 +347,11 @@ NOT_COMPARABLE
 UNKNOWN
 ```
 
-Смысл:
-
-- `COMPARABLE` — расчет допустим;
-- `NOT_COMPARABLE` — известно, что сравнение методологически некорректно;
-- `UNKNOWN` — сопоставимость не подтверждена.
-
 Если периоды известны как `NOT_COMPARABLE`, growth calculation блокируется.
 
 ---
 
-## 13. Orchestration layer
-
-Обработка вопроса разделена на несколько слоев:
+## 11. Orchestration layer
 
 ```text
 Question
@@ -532,88 +375,72 @@ Tool
 Answer Formatter
 ```
 
-### Parser
-
-LLM преобразует естественный язык в `ParsedQuestion`.
-
-### Validator
-
-Проверяет:
-
-- поддерживаемую компанию;
-- метрику;
-- intent;
-- обязательные параметры.
-
-### Resolver
-
-Безопасно восстанавливает параметры только там, где это разрешено архитектурой.
-
-### Dispatcher
-
-Выбирает инструмент:
+Dispatcher выбирает нужный механизм:
 
 ```text
-qualitative
--> retrieve_docs
-
-fact
--> query_facts
-
-derived_metric
--> compute_metric
-
-comparison
--> compare_companies
-
-growth
--> calculate_growth
-```
-
-### Answer Formatter
-
-Превращает структурированный `DispatchResult` в пользовательский ответ и
-форматирует provenance.
-
----
-
-## 14. Финансовые tools
-
-Основные deterministic tools:
-
-```python
-query_financial_facts(...)
-compute_financial_metric(...)
-compare_financial_companies(...)
-calculate_financial_growth(...)
-```
-
-Tools возвращают JSON-like структуры, содержащие:
-
-```text
-result
-units
-periods
-source_facts
-provenance
-comparability metadata
+qualitative   -> retrieve_docs
+fact          -> query_facts
+derived_metric-> compute_metric
+comparison    -> compare_companies
+growth        -> calculate_growth
 ```
 
 ---
 
-## 15. Evaluation
+## 12. Streamlit Demo Application
+
+Для работы с системой через браузер используется Streamlit.
+
+Интерфейс позволяет:
+
+- задавать вопросы на естественном языке;
+- получать точные финансовые значения;
+- получать результаты расчетов;
+- сравнивать компании;
+- задавать качественные вопросы по годовым отчетам;
+- видеть provenance и ссылки на документы/страницы.
+
+Пользовательский поток:
+
+```text
+Streamlit
+   |
+   v
+CreditAnalystAssistant.ask_text()
+   |
+   v
+QuestionParser
+   |
+   v
+Validator / Resolver
+   |
+   v
+Dispatcher
+   |
+   +--> RAG
+   |
+   +--> FinancialFact Store
+   |
+   +--> Python calculations
+   |
+   v
+AnswerFormatter
+   |
+   v
+Ответ в браузере
+```
+
+Тяжелые модели и RAG-компоненты кэшируются через `st.cache_resource`.
+
+---
+
+## 13. Evaluation
 
 В проекте есть несколько независимых уровней оценки.
 
-### 15.1. Retrieval evaluation
+### Retrieval evaluation
 
-Папка:
-
-```text
-evals/
-```
-
-Содержит:
+Папка `evals/` содержит:
 
 ```text
 evaluate_retrieval.py
@@ -623,29 +450,13 @@ evaluate_reranker.py
 retrieval_golden.jsonl
 ```
 
-Основные метрики:
+Основные метрики: Recall@1, Recall@3, Recall@5, MRR.
 
-```text
-Recall@1
-Recall@3
-Recall@5
-MRR
-```
-
-### 15.2. End-to-end evaluation
-
-Скрипт:
+### End-to-end evaluation
 
 ```text
 scripts/run_e2e_evaluation.py
 ```
-
-Проверяет:
-
-- intent;
-- выбранный tool;
-- извлеченные аргументы;
-- числовой результат.
 
 Последний зафиксированный baseline:
 
@@ -657,15 +468,11 @@ Argument accuracy: 100%
 Numeric cases:     4 / 4
 ```
 
-### 15.3. Stress evaluation
-
-Скрипт:
+### Stress evaluation
 
 ```text
 scripts/run_stress_evaluation.py
 ```
-
-Проверяет unseen и более неоднозначные формулировки.
 
 Последний зафиксированный результат:
 
@@ -677,32 +484,21 @@ Argument accuracy: 100%
 Numeric cases:     5 / 5
 ```
 
-### 15.4. Qualitative evaluation
-
-Скрипт:
+### Qualitative evaluation
 
 ```text
 scripts/run_qualitative_evaluation.py
 ```
 
-Проверяет:
-
-- наличие citation;
-- структуру citation;
-- соответствие компании;
-- соответствие года;
-- валидность страниц.
-
-Важно: citation integrity не равна полной semantic quality ответа.
-Поэтому qualitative evaluation интерпретируется отдельно от retrieval metrics.
+Проверяет структуру citation и соответствие источников. Citation integrity не
+равна полной semantic quality ответа, поэтому эта оценка интерпретируется
+отдельно от retrieval metrics.
 
 ---
 
-## 16. Unit tests
+## 14. Unit tests и code quality
 
-Детерминированная часть проекта покрыта быстрыми unit tests.
-
-Запуск:
+Запуск unit tests:
 
 ```bash
 uv run pytest tests/unit -q
@@ -714,48 +510,10 @@ uv run pytest tests/unit -q
 61 passed
 ```
 
-Unit tests покрывают:
-
-- FinancialFact schema;
-- metric resolver;
-- unit normalization;
-- fact store;
-- financial calculations;
-- mixed-unit calculations;
-- semantic comparability;
-- temporal comparability;
-- validation;
-- period resolution;
-- dispatcher;
-- financial tools;
-- answer formatter;
-- qualitative evaluator;
-- layout parsing helpers.
-
-Unit suite специально не использует:
-
-- Ollama;
-- embedding model;
-- reranker inference;
-- raw PDFs;
-- generated artifacts.
-
-LLM и RAG проверяются отдельными evaluation scripts.
-
----
-
-## 17. Code quality
-
 Static analysis:
 
 ```bash
-uv run ruff check src tests scripts evals
-```
-
-Unit tests:
-
-```bash
-uv run pytest tests/unit -q
+uv run ruff check app.py src tests scripts evals
 ```
 
 Текущий стек:
@@ -765,6 +523,7 @@ Python 3.12
 uv
 pytest
 ruff
+Streamlit
 Pydantic
 pdfplumber
 PyMuPDF
@@ -779,10 +538,12 @@ Ollama
 
 ---
 
-## 18. Структура репозитория
+## 15. Структура репозитория
 
 ```text
 credit-analyst-rag/
+|
+├── app.py
 |
 ├── data/
 │   ├── raw/
@@ -819,12 +580,13 @@ credit-analyst-rag/
 │   └── unit/
 |
 ├── pyproject.toml
+├── uv.lock
 └── README.md
 ```
 
 ---
 
-## 19. Установка
+## 16. Установка
 
 Проект использует Python 3.12.
 
@@ -846,7 +608,7 @@ Embedding model и reranker должны быть доступны локаль�
 
 ---
 
-## 20. Подготовка данных
+## 17. Подготовка данных
 
 Raw PDF-файлы намеренно не хранятся в Git.
 
@@ -856,13 +618,13 @@ Raw PDF-файлы намеренно не хранятся в Git.
 data/raw/MANIFEST.csv
 ```
 
-### Построение chunk cache
+Построение chunk cache:
 
 ```bash
 uv run python scripts/build_chunk_cache.py
 ```
 
-### Построение FinancialFact Store
+Построение FinancialFact Store:
 
 ```bash
 uv run python scripts/build_financial_facts.py
@@ -872,15 +634,33 @@ Generated artifacts исключаются из version control.
 
 ---
 
-## 21. Запуск
+## 18. Запуск приложения
 
-Основной пользовательский entry point:
+После подготовки данных запустите Streamlit-интерфейс:
 
 ```bash
-uv run python scripts/ask_rag.py
+uv run streamlit run app.py
 ```
 
-Evaluation:
+После запуска приложение обычно доступно локально по адресу:
+
+```text
+http://localhost:8501
+```
+
+Примеры вопросов:
+
+```text
+Какая выручка Роснефти за 2025 год?
+
+Как изменилась выручка Роснефти с 2024 по 2025 год?
+
+Какой Net Debt / EBITDA у ЛУКОЙЛа за 2025 год?
+
+Какие климатические риски описывает ЛУКОЙЛ в отчете за 2025 год?
+```
+
+Evaluation запускается отдельно:
 
 ```bash
 uv run python scripts/run_e2e_evaluation.py
@@ -899,7 +679,7 @@ uv run python evals/evaluate_reranker.py
 
 ---
 
-## 22. Текущие ограничения
+## 19. Текущие ограничения
 
 Проект является сфокусированным прототипом, а не production-сервисом.
 
@@ -911,7 +691,7 @@ uv run python evals/evaluate_reranker.py
 - отсутствующие disclosures не восстанавливаются автоматически;
 - broad qualitative queries могут покрывать не все релевантные аспекты документа;
 - пока нет query decomposition и multi-query retrieval;
-- нет web UI;
+- Streamlit-интерфейс предназначен для локального запуска и не развернут как публичный web-сервис;
 - нет production API;
 - нет observability и production monitoring;
 - качество local generation ограничено выбранной локальной моделью.
@@ -920,9 +700,7 @@ uv run python evals/evaluate_reranker.py
 
 ---
 
-## 23. Возможные следующие шаги
-
-Потенциальные улучшения:
+## 20. Возможные следующие шаги
 
 - query decomposition для широких qualitative-вопросов;
 - multi-query retrieval;
@@ -931,14 +709,17 @@ uv run python evals/evaluate_reranker.py
 - автоматическая валидация financial extraction;
 - lazy loading тяжелых RAG-компонентов;
 - REST API;
-- web-интерфейс;
+- публичный web-deployment;
+- загрузка пользовательских PDF;
+- поддержка новых компаний;
+- более универсальный financial extraction pipeline;
 - observability;
 - containerized deployment;
 - мониторинг качества retrieval и generation.
 
 ---
 
-## 24. Ключевая идея проекта
+## 21. Ключевая идея проекта
 
 Проект намеренно не использует LLM для каждой операции.
 
@@ -954,5 +735,5 @@ uv run python evals/evaluate_reranker.py
 Использовать deterministic code там, где нужны расчеты.
 ```
 
-Такое разделение делает систему более надежной, объяснимой,
-тестируемой и подходящей для задач финансового анализа.
+Такое разделение делает систему более надежной, объяснимой, тестируемой и
+подходящей для задач финансового анализа.
